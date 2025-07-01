@@ -1,6 +1,5 @@
-import fetch from 'node-fetch';
-
-const url = 'http://host.docker.internal:3000/ingest/store';
+const GATEWAY_URL = 'http://host.docker.internal:3000';
+const NETWORK_ID = 'ayumi'; // Replace with your network ID
 
 const data = {
   stores: [
@@ -43,16 +42,69 @@ const data = {
   ]
 };
 
-try {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  });
+// Utility function to get timestamp for logs
+const getTimestamp = () => new Date().toISOString();
 
-  const responseBody = await response.text();
-  console.log('Status:', response.status);
-  console.log('Resposta:', responseBody);
-} catch (error) {
-  console.error('Erro ao enviar os dados:', error);
+// Mock traceFunction for logging (replace with actual implementation if available)
+const traceFunction = (functionName) => (fn) => async (...args) => {
+  console.log(`[${getTimestamp()}] Tracing ${functionName} with args: ${JSON.stringify(args)}`);
+  try {
+    const result = await fn(...args);
+    console.log(`[${getTimestamp()}] ${functionName} completed successfully`);
+    return result;
+  } catch (error) {
+    console.error(`[${getTimestamp()}] ${functionName} failed: ${error.message}`);
+    throw error;
+  }
+};
+
+// Fetch network config function
+async function fetchNetworkConfig(networkId) {
+  const url = `${GATEWAY_URL}/config/${networkId}`;
+  console.log(`[${getTimestamp()}] Fetching config from ${url}`);
+  
+  const response = await fetch(url);
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! Status: ${response.status}`);
+  }
+
+  return response.json();
 }
+
+// Traced version of fetchNetworkConfig
+const fetchNetworkConfigTracedGateway = traceFunction('fetchNetworkConfig')(fetchNetworkConfig);
+
+// Main function to fetch config and ingest stores
+async function ingestStores() {
+  try {
+    // Fetch network configuration
+    console.log(`[${getTimestamp()}] Starting config fetch for network ID: ${NETWORK_ID}`);
+    const config = await fetchNetworkConfigTracedGateway(NETWORK_ID);
+    console.log(`[${getTimestamp()}] Config retrieved: ${JSON.stringify(config, null, 2)}`);
+
+    // Validate config (basic check, adjust as needed)
+    if (!config || !config.network) {
+      throw new Error('Invalid or missing network configuration');
+    }
+
+    // Proceed with store ingestion
+    const url = `${GATEWAY_URL}/ingest/store`;
+    console.log(`[${getTimestamp()}] Sending POST request to ${url} with ${data.stores.length} stores`);
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+
+    const responseBody = await response.text();
+    console.log(`[${getTimestamp()}] Status: ${response.status}`);
+    console.log(`[${getTimestamp()}] Response: ${responseBody}`);
+  } catch (error) {
+    console.error(`[${getTimestamp()}] Error during execution: ${error.message}`);
+  }
+}
+
+// Run the ingestion process
+ingestStores();
